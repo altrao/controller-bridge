@@ -29,21 +29,40 @@ jobs:
       # so a Gradle distribution has to be supplied from outside. Pinned to 8.7 because
       # AGP 8.5.2 refuses to run on anything older.
       #
-      # If you add a wrapper later (see notes), drop this step and use ./gradlew instead.
+      # If you add a wrapper later, drop this step and use ./gradlew instead.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # Deliberately NOT using android-actions/setup-android here. The ubuntu-latest
+      # image already ships the Android SDK plus cmdline-tools, and the action's own
+      # internal sdkmanager invocation fails against the image's cmdline-tools 16.0
+      # with "Failed to find package 'tools'". Removing it drops a third-party
+      # failure point and costs nothing.
+      #
+      # sdkmanager is located rather than hardcoded because the image ships a
+      # version-numbered directory (cmdline-tools/16.0) and there is no "latest"
+      # symlink. sort -V picks the newest if more than one is present.
+      - name: Install Android SDK packages
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          echo "Using $SDKMANAGER"
+          "$SDKMANAGER" --version
 
-      # AGP can auto-download missing SDK components, but doing it explicitly makes a
-      # failure here read as an SDK problem instead of an obscure Gradle error.
-      # `yes |` answers the license prompts. Harmless if the action already accepted
-      # them, and the difference between working and hanging if it did not.
-      - name: Install SDK packages
-        run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          # Accept licenses. The `|| true` is required, not defensive: Actions runs
+          # bash with -o pipefail, so `yes` dying of SIGPIPE (exit 141) would fail
+          # the step even when sdkmanager succeeded.
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null 2>&1 || true
+
+          # This call is NOT wrapped in `|| true` -- if it fails we want the job red.
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
       # assembleDebug, not assembleRelease: app/build.gradle.kts declares no signing
       # config, so a release build produces app-release-unsigned.apk, which Android
