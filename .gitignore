@@ -1,0 +1,40 @@
+# ------------------------------------------------------------------ Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+gradle-app.setting
+.gradletasknamecache
+
+# Machine-specific SDK path. Never commit -- it hardcodes one developer's machine.
+local.properties
+
+# ------------------------------------------------------------------ IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+captures/
+
+# ------------------------------------------------------------------ Android build output
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+.cxx/
+release/
+
+# ------------------------------------------------------------------ Signing material
+# Even the debug keystore stays out. CI generates its own.
+*.jks
+*.keystore
+*.p12
+*.pepk
+
+# ------------------------------------------------------------------ OS / editor noise
+.DS_Store
+Thumbs.db
+*.log
+*.swp

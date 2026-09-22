@@ -1,0 +1,65 @@
+name: Build Android APK
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # This project has no Gradle wrapper committed (no gradlew, no gradle/wrapper/),
+      # so a Gradle distribution has to be supplied from outside. Pinned to 8.7 because
+      # AGP 8.5.2 refuses to run on anything older.
+      #
+      # If you add a wrapper later (see notes), drop this step and use ./gradlew instead.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # AGP can auto-download missing SDK components, but doing it explicitly makes a
+      # failure here read as an SDK problem instead of an obscure Gradle error.
+      # `yes |` answers the license prompts. Harmless if the action already accepted
+      # them, and the difference between working and hanging if it did not.
+      - name: Install SDK packages
+        run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      # assembleDebug, not assembleRelease: app/build.gradle.kts declares no signing
+      # config, so a release build produces app-release-unsigned.apk, which Android
+      # refuses to install. The debug build is signed with the auto-generated debug
+      # keystore and is installable as-is, with no secrets.
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: List APK outputs
+        if: always()
+        run: |
+          find app/build/outputs -type f -name '*.apk' -printf '%p  %s bytes\n' || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ControllerBridge-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30

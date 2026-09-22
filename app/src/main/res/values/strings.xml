@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Controller Bridge</string>
+    <string name="ip_hint">PC IP address (e.g. 192.168.1.50)</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="idle">Idle</string>
+    <string name="invalid_ip">Enter a valid IP address</string>
+    <string name="no_controller">No controller detected</string>
+    <string name="controller_fmt">Controller: %1$s</string>
+</resources>
