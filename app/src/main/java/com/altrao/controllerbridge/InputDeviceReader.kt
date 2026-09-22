@@ -166,9 +166,13 @@ class InputDeviceReader(private val state: GamepadState) {
      * so the status line is honest, and the probed pad disappearing clears its state.
      */
     fun refreshDevicePresence() {
-        val gamepads = InputDevice.getDeviceIds()
-            .mapNotNull { InputDevice.getDevice(it) }
-            .filter { isGamepad(it) }
+        // InputDevice.getDeviceIds() returns a primitive IntArray, which has no
+        // mapNotNull overload -- build the list explicitly.
+        val gamepads = mutableListOf<InputDevice>()
+        for (id in InputDevice.getDeviceIds()) {
+            val device = InputDevice.getDevice(id) ?: continue
+            if (isGamepad(device)) gamepads.add(device)
+        }
 
         if (hasDevice && gamepads.none { it.id == probedDeviceId }) {
             onDeviceDetached()
