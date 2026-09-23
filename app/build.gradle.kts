@@ -15,6 +15,17 @@ android {
         versionName = "1.0"
     }
 
+    // Fixed debug key so each CI build installs as an update over the last one,
+    // keeping app data (saved server IP) instead of forcing an uninstall.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

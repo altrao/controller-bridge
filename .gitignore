@@ -27,11 +27,13 @@ captures/
 release/
 
 # ------------------------------------------------------------------ Signing material
-# Even the debug keystore stays out. CI generates its own.
 *.jks
 *.keystore
 *.p12
 *.pepk
+# Except the fixed debug keystore: a per-CI-run key forces an uninstall on every
+# update, which wipes app data (saved server IP). Public android/android creds, not a secret.
+!app/debug.keystore
 
 # ------------------------------------------------------------------ OS / editor noise
 .DS_Store

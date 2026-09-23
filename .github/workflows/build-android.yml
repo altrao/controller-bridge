@@ -64,10 +64,10 @@ jobs:
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
-      # assembleDebug, not assembleRelease: app/build.gradle.kts declares no signing
-      # config, so a release build produces app-release-unsigned.apk, which Android
-      # refuses to install. The debug build is signed with the auto-generated debug
-      # keystore and is installable as-is, with no secrets.
+      # assembleDebug, not assembleRelease: release has no signing config, so it
+      # produces app-release-unsigned.apk, which Android refuses to install. The debug
+      # build is signed with the committed app/debug.keystore (same key every run, so
+      # updates install over the old app), with no secrets.
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 

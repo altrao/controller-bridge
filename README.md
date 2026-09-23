@@ -10,7 +10,7 @@ Only a physical controller is supported; there is no on-screen gamepad. The only
 2. Download the `ControllerBridge-debug` artifact and unzip it.
 3. Sideload the `.apk` on the phone (allow installs from unknown sources).
 
-The APK is signed with a debug key. If an update fails with "App not installed", uninstall the old version first; the signing key can change between CI runs.
+The APK is signed with the fixed debug key in `app/debug.keystore`, so new builds install as updates and keep the saved server IP.
 
 ## Use
 
