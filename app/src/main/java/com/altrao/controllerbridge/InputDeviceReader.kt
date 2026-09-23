@@ -53,10 +53,8 @@ class InputDeviceReader(private val state: GamepadState) {
     private var keyUp = false
     private var keyDown = false
 
-    /** Set once a real gamepad has been seen, for the UI. */
-    @Volatile
-    var hasDevice = false
-        private set
+    /** True once a real gamepad has been probed, for the UI. */
+    val hasDevice get() = probedDeviceId != -1
 
     @Volatile
     var deviceName: String? = null
@@ -217,18 +215,13 @@ class InputDeviceReader(private val state: GamepadState) {
     fun onDeviceDetached() {
         DebugLog.d("Controller detached: $deviceName (id $probedDeviceId)")
         state.reset()
-        clearToggles()
-
-        hasDevice = false
         deviceName = null
 
         probedDeviceId = -1
         hasLeftTriggerAxis = false
         hasRightTriggerAxis = false
         useRxRyForRightStick = false
-    }
 
-    private fun clearToggles() {
         hatLeft = false
         hatRight = false
         hatUp = false
@@ -265,7 +258,6 @@ class InputDeviceReader(private val state: GamepadState) {
         if (probedDeviceId == device.id) return
 
         probedDeviceId = device.id
-        hasDevice = true
         deviceName = device.name
 
         hasLeftTriggerAxis = device.getMotionRange(MotionEvent.AXIS_LTRIGGER) != null

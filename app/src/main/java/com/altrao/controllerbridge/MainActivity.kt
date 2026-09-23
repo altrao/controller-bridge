@@ -122,7 +122,7 @@ class MainActivity : Activity() {
                 mainHandler.post { statusView.text = message }
             }
 
-            override fun onConnected(clientId: Int?) {
+            override fun onConnected() {
                 mainHandler.post {
                     connectButton.text = getString(R.string.disconnect)
                     ipField.isEnabled = false
@@ -285,7 +285,6 @@ class MainActivity : Activity() {
     private fun parseTarget(raw: String): Pair<String, Int>? {
         var value = raw.trim()
         if (value.startsWith("ws://", ignoreCase = true)) value = value.substring(5)
-        if (value.startsWith("wss://", ignoreCase = true)) value = value.substring(6)
 
         val parts = value.split(":")
         val host = parts.getOrNull(0)?.trim()?.takeIf { it.isNotEmpty() } ?: return null

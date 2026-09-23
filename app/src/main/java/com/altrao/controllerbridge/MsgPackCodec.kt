@@ -40,15 +40,14 @@ object MsgPackCodec {
     }
 
     /**
-     * `{ action: "input", id, gamepadType, gamepadData: {...}, [timestamp] }`
+     * `{ action: "input", id, gamepadType, gamepadData: {...} }`
      *
-     * `timestamp` is only added once the server has asked for a latency test, matching
-     * the Unity client. The server reads it only while `client.isTestingDelay` is set.
+     * No `timestamp`: the server's `handleInput` never reads it and times latency itself.
      */
-    fun inputPayload(id: Int, state: GamepadState, includeTimestamp: Boolean): ByteArray {
+    fun inputPayload(id: Int, state: GamepadState): ByteArray {
         val out = ByteArrayOutputStream(320)
         MessagePack.newDefaultPacker(out).use { packer ->
-            packer.packMapHeader(if (includeTimestamp) 5 else 4)
+            packer.packMapHeader(4)
 
             packer.packString("action").packString(ACTION_INPUT)
             packer.packString("id").packInt(id)
@@ -56,10 +55,6 @@ object MsgPackCodec {
 
             packer.packString("gamepadData")
             packGamepadData(packer, state)
-
-            if (includeTimestamp) {
-                packer.packString("timestamp").packLong(System.currentTimeMillis())
-            }
         }
         return out.toByteArray()
     }
