@@ -56,6 +56,9 @@ class GamepadState {
 
     @Volatile var buttonSelect = false
 
+    /** Guide / Xbox / PS button. */
+    @Volatile var ps = false
+
     /** Clears everything. Used when the controller is unplugged or the session ends. */
     fun reset() {
         buttonSouth = false
@@ -84,5 +87,6 @@ class GamepadState {
 
         buttonStart = false
         buttonSelect = false
+        ps = false
     }
 }

@@ -99,14 +99,25 @@ class InputDeviceReader(private val state: GamepadState) {
         hatDown = hy > HAT_THRESHOLD
 
         publishDpad()
+
+        if (DebugLog.enabled) {
+            DebugLog.d("axis L %+.2f,%+.2f R %+.2f,%+.2f T %.2f,%.2f hat %+.0f,%+.0f".format(
+                state.leftStickX, state.leftStickY, state.rightStickX, state.rightStickY,
+                state.leftTrigger, state.rightTrigger, hx, hy
+            ))
+        }
         return true
     }
 
     fun onKeyEvent(event: KeyEvent): Boolean {
         val device = event.device ?: return false
-        if (!isGamepad(device)) return false
-
-        probe(device)
+        // Bluetooth Xbox pads often send guide from a separate "consumer control" device
+        // that is not flagged as a gamepad. Accept that key, but never probe that device.
+        if (isGamepad(device)) {
+            probe(device)
+        } else if (event.keyCode != KeyEvent.KEYCODE_BUTTON_MODE) {
+            return false
+        }
 
         val pressed = when (event.action) {
             KeyEvent.ACTION_DOWN -> true
@@ -114,7 +125,18 @@ class InputDeviceReader(private val state: GamepadState) {
             else -> return false
         }
 
+        if (DebugLog.enabled && event.repeatCount == 0) {
+            DebugLog.d("key ${KeyEvent.keyCodeToString(event.keyCode)} ${if (pressed) "down" else "up"}")
+        }
+
         when (event.keyCode) {
+            // Guide / Xbox button. Consuming it (down AND up) stops Android's fallback
+            // key handling from turning it into HOME. KEYCODE_HOME itself is listed for
+            // pads whose key layout maps guide to it, but most platforms intercept HOME
+            // in the window manager before it ever reaches an app.
+            KeyEvent.KEYCODE_BUTTON_MODE,
+            KeyEvent.KEYCODE_HOME -> state.ps = pressed
+
             KeyEvent.KEYCODE_BUTTON_A -> state.buttonSouth = pressed
             KeyEvent.KEYCODE_BUTTON_B -> state.buttonEast = pressed
             KeyEvent.KEYCODE_BUTTON_X -> state.buttonWest = pressed
@@ -193,6 +215,7 @@ class InputDeviceReader(private val state: GamepadState) {
      * keycode fallback.
      */
     fun onDeviceDetached() {
+        DebugLog.d("Controller detached: $deviceName (id $probedDeviceId)")
         state.reset()
         clearToggles()
 
@@ -253,6 +276,12 @@ class InputDeviceReader(private val state: GamepadState) {
         useRxRyForRightStick =
             device.getMotionRange(MotionEvent.AXIS_RX) != null &&
                 device.getMotionRange(MotionEvent.AXIS_RY) != null
+
+        DebugLog.d(
+            "Controller attached: ${device.name} (id ${device.id}) " +
+                "LT axis=$hasLeftTriggerAxis RT axis=$hasRightTriggerAxis " +
+                "right stick=${if (useRxRyForRightStick) "RX/RY" else "Z/RZ"}"
+        )
     }
 
     private fun deadzone(value: Float): Float {

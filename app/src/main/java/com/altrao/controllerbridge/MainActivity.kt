@@ -10,6 +10,7 @@ import android.os.Looper
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
@@ -40,11 +41,21 @@ class MainActivity : Activity() {
 
     private lateinit var ipField: EditText
     private lateinit var connectButton: Button
+    private lateinit var debugButton: Button
     private lateinit var statusView: TextView
     private lateinit var deviceView: TextView
     private lateinit var readoutView: TextView
+    private lateinit var logView: TextView
+
+    private var renderedLogVersion = -1
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * FLAG_KEEP_SCREEN_ON stops the device sleeping mid-session; this drops the backlight
+     * to minimum after [DIM_AFTER_MS] without a touch to save battery. Any touch restores it.
+     */
+    private val dimRunnable = Runnable { setBrightness(DIM_BRIGHTNESS) }
 
     /**
      * The readout polls rather than being push-driven, which is deliberate: Android only
@@ -60,6 +71,7 @@ class MainActivity : Activity() {
         override fun run() {
             inputReader.refreshDevicePresence()
             renderReadout()
+            renderLog()
             mainHandler.postDelayed(this, 100)
         }
     }
@@ -76,10 +88,28 @@ class MainActivity : Activity() {
         attachBridgeListener()
 
         mainHandler.post(readoutRunnable)
+        mainHandler.postDelayed(dimRunnable, DIM_AFTER_MS)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            mainHandler.removeCallbacks(dimRunnable)
+            setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
+            mainHandler.postDelayed(dimRunnable, DIM_AFTER_MS)
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun setBrightness(value: Float) {
+        val params = window.attributes
+        if (params.screenBrightness == value) return
+        params.screenBrightness = value
+        window.attributes = params
     }
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(readoutRunnable)
+        mainHandler.removeCallbacks(dimRunnable)
         bridge.disconnect()
         super.onDestroy()
     }
@@ -118,6 +148,11 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(24), dp(20), dp(20))
+            // Hold focus on the container, not the IP field. A focused EditText keeps the
+            // IME in the key-event path, where it can eat gamepad buttons before
+            // dispatchKeyEvent sees them.
+            isFocusableInTouchMode = true
+            descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
         }
 
         root.addView(TextView(this).apply {
@@ -138,12 +173,30 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(16) })
 
+        debugButton = Button(this).apply {
+            text = getString(R.string.debug_off)
+            setOnClickListener { toggleDebug() }
+        }
+
         connectButton = Button(this).apply {
             text = getString(R.string.connect)
             setOnClickListener { toggleConnection() }
         }
 
-        root.addView(connectButton, LinearLayout.LayoutParams(
+        val buttonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(debugButton, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            addView(connectButton, LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply { leftMargin = dp(8) })
+        }
+
+        root.addView(buttonRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(12) })
@@ -170,11 +223,41 @@ class MainActivity : Activity() {
         }
         root.addView(readoutView)
 
+        // Newest line first, so fresh events sit right under the readout; the page's
+        // ScrollView scrolls back through older ones.
+        logView = TextView(this).apply {
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.DKGRAY)
+            setPadding(0, dp(16), 0, 0)
+            visibility = View.GONE
+        }
+        root.addView(logView)
+
         setContentView(ScrollView(this).apply { addView(root) })
+        root.requestFocus()
+    }
+
+    private fun toggleDebug() {
+        DebugLog.enabled = !DebugLog.enabled
+        debugButton.text = getString(if (DebugLog.enabled) R.string.debug_on else R.string.debug_off)
+        logView.visibility = if (DebugLog.enabled) View.VISIBLE else View.GONE
+        renderedLogVersion = -1
+        renderLog()
+    }
+
+    private fun renderLog() {
+        if (!DebugLog.enabled) return
+        val version = DebugLog.version
+        if (version == renderedLogVersion) return
+        renderedLogVersion = version
+        logView.text = DebugLog.text()
     }
 
     private fun toggleConnection() {
-        if (bridge.isStreaming()) {
+        // isActive() covers the handshake phase too, so a second press while connecting
+        // disconnects instead of opening another socket (= another controller on the PC).
+        if (bridge.isActive()) {
             bridge.disconnect()
             return
         }
@@ -190,6 +273,8 @@ class MainActivity : Activity() {
         hideKeyboard()
 
         bridge.connect(target.first, target.second)
+        connectButton.text = getString(R.string.disconnect)
+        ipField.isEnabled = false
     }
 
     /**
@@ -252,7 +337,7 @@ class MainActivity : Activity() {
                 if (s.left) "L" else "-",
                 if (s.right) "R" else "-"
             ))
-            append("Start %d  Select %d".format(b(s.buttonStart), b(s.buttonSelect)))
+            append("Start %d  Select %d  Guide %d".format(b(s.buttonStart), b(s.buttonSelect), b(s.ps)))
         }
     }
 
@@ -286,5 +371,10 @@ class MainActivity : Activity() {
         /** Matches the server's default port in websocket.ts. */
         const val DEFAULT_PORT = 60001
         const val DEFAULT_IP = "192.168.1.50"
+
+        const val DIM_AFTER_MS = 30_000L
+
+        /** Not 0f: some devices treat an exact 0 as backlight off. */
+        const val DIM_BRIGHTNESS = 0.01f
     }
 }

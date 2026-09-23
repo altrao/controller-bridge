@@ -5,6 +5,8 @@
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="idle">Idle</string>
+    <string name="debug_off">Debug</string>
+    <string name="debug_on">Debug ✓</string>
     <string name="invalid_ip">Enter a valid IP address</string>
     <string name="no_controller">No controller detected</string>
     <string name="controller_fmt">Controller: %1$s</string>

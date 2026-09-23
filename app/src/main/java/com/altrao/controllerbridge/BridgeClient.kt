@@ -1,6 +1,5 @@
 package com.altrao.controllerbridge
 
-import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -31,8 +30,6 @@ import java.util.concurrent.atomic.AtomicReference
 class BridgeClient(private val state: GamepadState) {
 
     companion object {
-        private const val TAG = "BridgeClient"
-
         /**
          * 125 Hz. Comfortably above the 60 Hz most pads sample at, and small enough
          * (~300 bytes/frame) to be irrelevant on WiFi. MessagePack keeps each frame
@@ -81,11 +78,16 @@ class BridgeClient(private val state: GamepadState) {
         .build()
 
     fun connect(ip: String, port: Int) {
+        // Never leave a previous socket open behind a new one: the server would keep its
+        // virtual pad alive as an extra controller.
+        if (socketRef.get() != null) disconnect()
+
         closingIntentionally = false
         clientId.set(-1)
 
         val url = "ws://$ip:$port"
         listener?.onStatus("Connecting to $url")
+        DebugLog.d("Connecting to $url")
 
         val request = Request.Builder().url(url).build()
         socketRef.set(httpClient.newWebSocket(request, SocketListener()))
@@ -97,6 +99,7 @@ class BridgeClient(private val state: GamepadState) {
 
         val socket = socketRef.getAndSet(null)
         if (socket != null) {
+            DebugLog.d("Disconnecting (id ${clientId.get()})")
             // Only send an explicit disconnect once registration succeeded. Before that
             // the server has no clientMap entry for us, and would emit a `gamepad:disconnected`
             // event for an id it never issued.
@@ -109,13 +112,19 @@ class BridgeClient(private val state: GamepadState) {
                 )))
             }
             socket.close(1000, "client closing")
+            // Reset the UI now rather than waiting for the server's close frame.
+            listener?.onDisconnected("Closed")
         }
 
         clientId.set(-1)
         streaming.set(false)
     }
 
-    fun isStreaming(): Boolean = streaming.get()
+    /**
+     * True from [connect] until the socket is closed or fails -- including the handshake
+     * phase, so the UI's button can never open a second socket alongside a live one.
+     */
+    fun isActive(): Boolean = socketRef.get() != null
 
     // ---------------------------------------------------------------- sender loop
 
@@ -125,25 +134,32 @@ class BridgeClient(private val state: GamepadState) {
      */
     private fun startSender(socket: WebSocket) {
         stopSender()
+        // Must come after stopSender(), which clears the flag -- setting it before made
+        // the loop below exit on its first check, so no input frame was ever sent.
+        streaming.set(true)
 
         val thread = Thread({
             val frameNs = 1_000_000_000L / SEND_HZ
             var next = System.nanoTime()
 
-            while (streaming.get()) {
-                if (!sendFrame(socket)) break
+            try {
+                while (streaming.get()) {
+                    if (!sendFrame(socket)) break
 
-                // Drift-corrected pacing. `Thread.sleep(8)` accumulates error and the
-                // real rate drifts below 125 Hz; advancing a whole period keeps the
-                // average exact.
-                next += frameNs
-                val remaining = next - System.nanoTime()
-                if (remaining > 0) {
-                    Thread.sleep(remaining / 1_000_000L, (remaining % 1_000_000L).toInt())
-                } else {
-                    // Fell behind on a slow frame. Re-base instead of spinning to catch up.
-                    next = System.nanoTime()
+                    // Drift-corrected pacing. `Thread.sleep(8)` accumulates error and the
+                    // real rate drifts below 125 Hz; advancing a whole period keeps the
+                    // average exact.
+                    next += frameNs
+                    val remaining = next - System.nanoTime()
+                    if (remaining > 0) {
+                        Thread.sleep(remaining / 1_000_000L, (remaining % 1_000_000L).toInt())
+                    } else {
+                        // Fell behind on a slow frame. Re-base instead of spinning to catch up.
+                        next = System.nanoTime()
+                    }
                 }
+            } catch (e: InterruptedException) {
+                // stopSender() interrupts the sleep. Uncaught, this would crash the app.
             }
         }, "gamepad-sender")
 
@@ -163,14 +179,14 @@ class BridgeClient(private val state: GamepadState) {
             if (!queued) {
                 // OkHttp returns false when the socket is already closed. This is the
                 // normal way a WiFi drop surfaces -- not an exception.
-                Log.w(TAG, "Send rejected: socket no longer open")
+                DebugLog.d("Send rejected: socket no longer open")
                 false
             } else {
                 true
             }
         } catch (e: Throwable) {
             if (streaming.get()) {
-                Log.w(TAG, "Send failed: ${e.message}")
+                DebugLog.d("Send failed: $e")
             }
             false
         }
@@ -189,6 +205,7 @@ class BridgeClient(private val state: GamepadState) {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             listener?.onStatus("Handshaking")
+            DebugLog.d("Socket open, sending handshake")
             webSocket.send(ByteString.of(*MsgPackCodec.controlPayload(
                 MsgPackCodec.ACTION_HANDSHAKE,
                 -1
@@ -201,9 +218,11 @@ class BridgeClient(private val state: GamepadState) {
             } catch (e: Throwable) {
                 // The server can legitimately send something we don't model. Log and
                 // ignore rather than tearing down a working session.
-                Log.w(TAG, "Undecodable server message: ${e.message}")
+                DebugLog.d("Undecodable server message: $e")
                 return
             }
+
+            DebugLog.d("<- ${response.action} status=${response.status} payload=${response.payload}")
 
             when (response.action) {
                 "handshake_ack" -> handleHandshakeAck(webSocket, response)
@@ -223,24 +242,37 @@ class BridgeClient(private val state: GamepadState) {
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            stopSender()
-            streaming.set(false)
-            clientId.set(-1)
-
+            DebugLog.d("Socket failure: $t")
             if (closingIntentionally) {
-                listener?.onDisconnected("Closed")
+                socketGone(webSocket, "Closed")
             } else {
                 val detail = t.message ?: t::class.java.simpleName
-                listener?.onDisconnected("Connection failed: $detail")
+                socketGone(webSocket, "Connection failed: $detail")
             }
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            stopSender()
-            streaming.set(false)
+            DebugLog.d("Socket closing: $code $reason")
             webSocket.close(1000, null)
-            listener?.onDisconnected(if (reason.isBlank()) "Server closed" else "Server closed: $reason")
+            when {
+                closingIntentionally -> socketGone(webSocket, "Closed")
+                reason.isBlank() -> socketGone(webSocket, "Server closed")
+                else -> socketGone(webSocket, "Server closed: $reason")
+            }
         }
+    }
+
+    /**
+     * Tears down session state once [webSocket] is finished. Ignores callbacks from a
+     * socket that has already been replaced by a newer [connect], so a late close of
+     * the old socket cannot stop the new session's sender or reset the UI.
+     */
+    private fun socketGone(webSocket: WebSocket, reason: String) {
+        if (socketRef.get() != null && !socketRef.compareAndSet(webSocket, null)) return
+
+        stopSender()
+        clientId.set(-1)
+        listener?.onDisconnected(reason)
     }
 
     /**
@@ -270,7 +302,6 @@ class BridgeClient(private val state: GamepadState) {
         listener?.onConnected(id)
         listener?.onStatus("Streaming (id $id)")
 
-        streaming.set(true)
         startSender(webSocket)
     }
 

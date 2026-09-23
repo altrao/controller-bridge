@@ -65,7 +65,10 @@ object MsgPackCodec {
     }
 
     /**
-     * The `gamepadData` map: exactly 21 keys, matching the Unity `GamepadData` fields.
+     * The `gamepadData` map: the 20 Unity `GamepadData` fields plus `ps`.
+     *
+     * The header count MUST equal the number of pairs packed below. A mismatch produces
+     * truncated MessagePack that the server's `decode()` rejects, dropping every frame.
      *
      * Booleans go out as real booleans (`packBoolean`), not ints. `@msgpack/msgpack`
      * decodes them to JS booleans, which is what `xboxInput()` feeds to the FFI layer.
@@ -101,6 +104,9 @@ object MsgPackCodec {
 
         packer.packString("buttonStart").packBoolean(s.buttonStart)
         packer.packString("buttonSelect").packBoolean(s.buttonSelect)
+
+        // Guide / Xbox / PS button. Extra key -- the server ignores it until it reads it.
+        packer.packString("ps").packBoolean(s.ps)
     }
 
     /**
