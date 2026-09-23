@@ -211,7 +211,7 @@ class MainActivity : Activity() {
         deviceView = TextView(this).apply {
             text = getString(R.string.no_controller)
             textSize = 14f
-            setTextColor(Color.DKGRAY)
+            setTextColor(Color.GRAY)
             setPadding(0, dp(12), 0, 0)
         }
         root.addView(deviceView)
@@ -228,7 +228,7 @@ class MainActivity : Activity() {
         logView = TextView(this).apply {
             textSize = 11f
             typeface = Typeface.MONOSPACE
-            setTextColor(Color.DKGRAY)
+            setTextColor(Color.GRAY)
             setPadding(0, dp(16), 0, 0)
             visibility = View.GONE
         }
